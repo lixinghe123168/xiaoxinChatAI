@@ -1,0 +1,19 @@
+[server]
+# 启用 CORS（允许跨域访问）
+enableCORS = true
+# 启用 XSRF 防护（安全性更好）
+enableXsrfProtection = true
+# 允许的来源（本地开发用）
+enableWebsocketConnection = true
+
+[client]
+# 显示工具栏
+showSidebarNavigation = false
+
+[logger]
+# 降低日志级别，减少警告输出
+level = "info"
+
+[browser]
+# 自动打开浏览器
+gatherUsageStats = false
