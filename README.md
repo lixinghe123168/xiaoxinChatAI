@@ -162,6 +162,10 @@ pip install silk-python>=0.2.8 pydub>=0.25.0
 ### 运行
 
 ```bash
+# 方式一：双击启动（Windows推荐）
+start_web.bat
+
+# 方式二：命令行启动
 # 启动微信机器人（命令行模式）
 python main.py
 
