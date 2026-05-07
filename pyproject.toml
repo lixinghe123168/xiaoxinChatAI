@@ -1,0 +1,53 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "xiaoxinChatAI"
+version = "1.0.0"
+description = "xiaoxinChatAI - AI 微信机器人，基于 clawpy SDK"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "xiaoxinChatAI team"}
+]
+keywords = ["wechat", "weixin", "bot", "ai", "robot"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Communications :: Chat",
+]
+requires-python = ">=3.10"
+dependencies = [
+    "aiohttp>=3.9.0",
+    "cryptography>=41.0.0",
+    "openai>=1.0.0",
+]
+
+[project.optional-dependencies]
+voice = [
+    "silk-python>=0.2.8",
+    "pydub>=0.25.0",
+]
+web = [
+    "streamlit>=1.28.0",
+]
+dev = [
+    "pytest>=7.0",
+    "pytest-asyncio>=0.23",
+]
+
+[project.urls]
+Homepage = ""
+Issues = ""
+
+[tool.setuptools.packages.find]
+include = ["clawpy*"]
+
+[tool.setuptools.package-data]
+clawpy = ["py.typed"]
