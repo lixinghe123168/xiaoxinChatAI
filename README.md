@@ -110,9 +110,16 @@ xiaoxinChatAI/
 ### 获取代码
 
 ```bash
-# 克隆仓库（推荐）
+# 克隆仓库（二选一）
+
+# Gitee（国内推荐）
+git clone https://gitee.com/lixinghee/xiaoxin-chat-ai.git
+
+# GitHub
 git clone https://github.com/lixinghe123168/xiaoxinChatAI.git
+
 cd xiaoxin-chat-ai
+```
 
 ### 环境要求
 
