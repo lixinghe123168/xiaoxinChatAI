@@ -126,7 +126,11 @@ def _check_config_ready(override_cfg: dict = None) -> tuple[bool, str]:
 
 
 def _get_bot_name() -> str:
-    return "微信"
+    skill_data = _get_skill_data()
+    name = skill_data.get("config", {}).get("name_zh", "")
+    if name:
+        return name
+    return "小欣"
 
 def _get_max_history() -> int:
     return _get_web_config().get("memory", {}).get("short_term_max", 20)
