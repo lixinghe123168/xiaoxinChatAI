@@ -778,6 +778,19 @@ pytest
 - 认证方式：QR 码扫码 + Bearer Token
 - 加密方式：AES-128-ECB（CDN 媒体上传）
 
+## 致谢
+
+本项目在开发过程中参考了以下优秀项目和资源：
+
+- [llama.cpp](https://github.com/ggml-org/llama.cpp) - 高效的本地 LLM 推理框架
+- [DeepSeek](https://github.com/deepseek-ai) - 开源大语言模型
+- [Qwen](https://github.com/QwenLM/Qwen) - 通义千问开源模型系列
+- [Streamlit](https://github.com/streamlit/streamlit) - 快速构建 Web 应用的 Python 框架
+- [OpenAI](https://github.com/openai/openai-python) - OpenAI Python SDK
+- [WeFlow](https://weflow.top/) - 微信聊天记录导出工具
+
+如果项目对你有帮助或启发，不妨给个 ⭐ Star 支持一下~
+
 ## License
 
 MIT License
