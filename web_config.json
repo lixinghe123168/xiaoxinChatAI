@@ -1,11 +1,11 @@
 {
   "model": {
-    "name": "deepseek-chat",
-    "api_key": "sk-1ba19e25b9104971b418d532b7918061",
+    "name": "",
+    "api_key": "",
     "base_url": "https://api.deepseek.com"
   },
   "skill": {
-    "path": "C:\\Users\\Administrator\\.openclaw\\workspace\\skills\\xiaojia",
+    "path": "",
     "enabled": true
   },
   "memory": {
@@ -27,9 +27,9 @@
     "emoji": true,
     "emoji_probability": 0.5,
     "emoji_api": {
-      "api_id": "10016087",
-      "api_key": "7649247a628f924da2f7885fa792f56e",
-      "api_url": "http://124.222.204.22/api/img/apihzbqbbaidu.php"
+      "api_id": "",
+      "api_key": "",
+      "api_url": ""
     },
     "max_messages": 3,
     "proactive_message": {
