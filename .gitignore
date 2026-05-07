@@ -34,7 +34,7 @@ env/
 *~
 
 # 业务代码和测试文件（不上传）
-main.py
+# main.py  # 已移除：需要作为项目主程序上传
 test_*.py
 test_*.log
 test_*.txt
@@ -60,9 +60,10 @@ cache/
 # 凭证和敏感信息（绝对不能上传！）
 credentials.json
 auth_cache.json
-*.json
+# *.json  # 已移除：允许上传 web_config.json 等配置文件模板
 .env
 .env.local
+web_config.local.json  # 本地实际配置（含真实 API Key）
 
 # OS
 .DS_Store

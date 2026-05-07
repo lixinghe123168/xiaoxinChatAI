@@ -1,0 +1,64 @@
+{
+  "model": {
+    "name": "deepseek-chat",
+    "api_key": "your-api-key-here",
+    "base_url": "https://api.deepseek.com"
+  },
+  "skill": {
+    "path": "path/to/your/skill/xiaojia",
+    "enabled": true
+  },
+  "memory": {
+    "short_term_enabled": true,
+    "short_term_max": 20,
+    "long_term_enabled": true,
+    "long_term_max": 200,
+    "expire_days": 90,
+    "retrieval_top_k": 5,
+    "retrieval_min_score": 0.2
+  },
+  "tools": {
+    "web_search": true,
+    "web_search_source": "searxng",
+    "get_weather": true,
+    "get_news": true
+  },
+  "features": {
+    "emoji": true,
+    "emoji_probability": 0.5,
+    "emoji_api": {
+      "api_id": "your-emoji-api-id",
+      "api_key": "your-emoji-api-key",
+      "api_url": "https://your-emoji-api.com/endpoint"
+    },
+    "max_messages": 3,
+    "proactive_message": {
+      "enabled": true,
+      "interval_minutes": 5,
+      "max_idle_minutes": 10,
+      "probability": 0.8,
+      "styles": [
+        "延续上次话题",
+        "询问近况",
+        "分享日常",
+        "主动关心",
+        "幽默调侃",
+        "撒娇卖萌"
+      ]
+    },
+    "file_reply": true,
+    "video_reply": true,
+    "voice_reply": true,
+    "typing_indicator": true,
+    "image_handling": {
+      "send_to_ai": true,
+      "fallback_reply": "auto",
+      "unsupported_model_msg": ""
+    }
+  },
+  "system": {
+    "temperature": 0.7,
+    "max_tokens": 2000,
+    "timeout": 120
+  }
+}
