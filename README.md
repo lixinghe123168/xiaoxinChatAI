@@ -787,6 +787,7 @@ pytest
 - [Qwen](https://github.com/QwenLM/Qwen) - 通义千问开源模型系列
 - [Streamlit](https://github.com/streamlit/streamlit) - 快速构建 Web 应用的 Python 框架
 - [OpenAI](https://github.com/openai/openai-python) - OpenAI Python SDK
+- [OpenClaw](https://github.com/petersteam/openclaw) - 开源 AI 智能体平台（微信 iLink Bot 协议参考）
 - [WeFlow](https://weflow.top/) - 微信聊天记录导出工具
 
 如果项目对你有帮助或启发，不妨给个 ⭐ Star 支持一下~
