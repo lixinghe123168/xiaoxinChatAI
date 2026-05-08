@@ -47,10 +47,10 @@ xiaoxinChatAI 是一个纯 Python 实现的 AI 微信机器人，集成了大语
 
 **表情包 API 申请：**
 
-本项目默认使用 **原田 API**（免费），申请步骤：
+本项目默认使用 **接口盒子**（免费），申请步骤：
 
-1. 访问 [原田 API 开放平台](https://open.alapi.cn/) 注册账号
-2. 进入控制台，创建一个新应用
+1. 访问 [接口盒子](https://www.apihz.com/) 注册账号
+2. 进入控制台 → API 管理 → 找到「表情包」接口
 3. 获取 `api_id` 和 `api_key`
 4. 在 `web_config.json` 中配置：
 
@@ -60,7 +60,7 @@ xiaoxinChatAI 是一个纯 Python 实现的 AI 微信机器人，集成了大语
     "emoji_api": {
       "api_id": "your_api_id",
       "api_key": "your_api_key",
-      "api_url": "https://v2.alapi.cn/api/dog"
+      "api_url": "接口盒子提供的表情包接口地址"
     }
   }
 }
