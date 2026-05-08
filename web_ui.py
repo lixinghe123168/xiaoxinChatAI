@@ -1,4 +1,4 @@
-"""
+﻿"""
 xiaoxinChatAI Web 管理界面 - Streamlit 版本
 
 功能:
@@ -29,16 +29,24 @@ import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from main import (
-    load_skill,
-    _get_bot_name,
-    EMOJI_KEYWORDS,
-    parse_ai_response,
+from core.config import load_config, save_config, CONFIG_FILE, get_model_name, get_temperature
+from core.session import (
     chat_histories,
+    chat_summaries,
     get_history,
     add_to_history,
-    _get_max_history,
+    get_chat_summary,
+    clear_user_history,
 )
+from core.skill import load_skill, get_skill_data, get_bot_name
+from core.prompt import EMOJI_KEYWORDS, parse_ai_response
+from core.handler import (
+    process_message as core_process_message,
+    store_messages_to_memory,
+    is_duplicate_message,
+    _get_llm,
+)
+
 from memory import memory_store, LongTermMemory, format_retrieved_memories, should_store_memory
 from tools import TOOL_DEFINITIONS, execute_tool_call, web_search, get_weather, get_news
 import aiohttp
@@ -136,100 +144,12 @@ def split_long_message(text: str, max_length: int = 1500) -> list[str]:
 
 
 PROJECT_ROOT = Path(__file__).parent
-CONFIG_FILE = PROJECT_ROOT / "web_config.json"
-
-
-def _deep_merge(base: dict, override: dict) -> dict:
-    """递归合并两个字典，支持嵌套"""
-    result = base.copy()
-    for key, val in override.items():
-        if key in result and isinstance(result[key], dict) and isinstance(val, dict):
-            result[key] = _deep_merge(result[key], val)
-        else:
-            result[key] = val
-    return result
-
-
-def load_web_config() -> dict:
-    """加载 Web UI 配置"""
-    default_config = {
-        "model": {
-            "name": "deepseek-chat",
-            "api_key": "your-api-key-here",
-            "base_url": "https://api.deepseek.com",
-        },
-        "skill": {
-            "path": "path/to/your/skill/xiaojia",
-            "enabled": True,
-        },
-        "memory": {
-            "short_term_enabled": True,
-            "short_term_max": 20,
-            "long_term_enabled": True,
-            "long_term_max": 200,
-            "expire_days": 90,
-            "retrieval_top_k": 5,
-            "retrieval_min_score": 0.2,
-        },
-        "tools": {
-            "web_search": True,
-            "web_search_source": "searxng",
-        },
-        "features": {
-            "emoji": True,
-            "emoji_probability": 0.5,
-            "emoji_api": {
-                "api_id": "your-emoji-api-id",
-                "api_key": "your-emoji-api-key",
-                "api_url": "https://your-emoji-api.com/endpoint",
-            },
-            "max_messages": 3,
-            "proactive_message": {
-                "enabled": False,
-                "interval_minutes": 30,
-                "max_idle_minutes": 120,
-                "probability": 0.3,
-                "styles": ["延续上次话题", "询问近况", "分享日常", "主动关心"],
-            },
-            "file_reply": False,
-            "video_reply": False,
-            "voice_reply": False,
-            "typing_indicator": True,
-            "image_handling": {
-                "send_to_ai": False,
-                "fallback_reply": "auto",
-                "unsupported_model_msg": "该模型暂时识别不了图片",
-            },
-        },
-        "system": {
-            "temperature": 0.7,
-            "max_tokens": 2000,
-            "timeout": 120,
-        },
-    }
-    
-    if CONFIG_FILE.exists():
-        try:
-            saved = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
-            default_config = _deep_merge(default_config, saved)
-        except Exception as e:
-            st.error(f"配置文件读取失败: {e}")
-    
-    return default_config
-
-
-def save_web_config(config: dict):
-    """保存 Web UI 配置"""
-    CONFIG_FILE.write_text(
-        json.dumps(config, ensure_ascii=False, indent=2),
-        encoding="utf-8"
-    )
 
 
 def init_session_state():
     """初始化 Session State"""
     if 'config' not in st.session_state:
-        st.session_state.config = load_web_config()
+        st.session_state.config = load_config()
     
     if 'messages' not in st.session_state:
         st.session_state.messages = []
@@ -238,14 +158,7 @@ def init_session_state():
         st.session_state.user_id = f"web_user_{datetime.now().strftime('%Y%m%d%H%M%S')}"
     
     if 'llm' not in st.session_state:
-        from openai import AsyncOpenAI
-        
-        cfg = st.session_state.config['model']
-        st.session_state.llm = AsyncOpenAI(
-            base_url=cfg['base_url'],
-            api_key=cfg['api_key'],
-            timeout=st.session_state.config['system']['timeout'],
-        )
+        st.session_state.llm = _get_llm()
     
     if 'skill_data' not in st.session_state:
         skill_path = st.session_state.config['skill']['path']
@@ -255,175 +168,54 @@ def init_session_state():
             st.session_state.skill_data = {"config": {}, "persona": "", "memories": ""}
 
 
+from core.prompt import build_system_prompt
+
 def rebuild_system_prompt() -> str:
-    """根据当前配置重新构建 System Prompt"""
+    """根据当前配置重新构建 System Prompt（Streamlit 适配）"""
     config = st.session_state.config
-    skill_data = st.session_state.skill_data
-    bot_name = skill_data.get("config", {}).get("name", "AI助手")
-    
-    emoji_section = ""
-    if config['features']['emoji']:
-        emoji_section = f"""
-
-## 表情包规则
-
-你需要根据当前对话的情绪和语境，选择一个最合适的表情包关键词。
-可选关键词：{', '.join(EMOJI_KEYWORDS)}
-
-输出格式（严格遵守）：
-第一行：你的回复（用{bot_name}的口吻和风格）
-第二行：[EMOJI:关键词]
-
-注意：
-- 必须严格按格式输出，第二行必须是 [EMOJI:xxx] 格式
-- 关键词必须从上面列表中选择
-- 保持{bot_name}的说话风格：短句、口语化、偶尔毒舌
-"""
-    
-    tools_section = ""
-    if config['tools']['web_search']:
-        tools_section = """
-
-## 联网能力说明
-
-你可以使用以下工具来获取最新信息：
-- **网络搜索**：当用户问天气、新闻、或者你不知道的最新信息时使用
-
-**使用规则：**
-- 只有在确实需要最新信息时才使用工具
-- 用户明确要求查东西时，优先使用工具
-- 工具返回的结果要用自然语言总结给用户，不要原样复制
-"""
-    
-    prompt = f"""你现在是「{bot_name}」，请完全按照以下 Persona 设定来回复。
-
-## 你的身份设定
-
-{skill_data.get('config', {}).get('system_prompt', f'你扮演{bot_name}，一个有独特个性的AI助手。\n  性格：幽默有趣，有自己的想法。\n  说话风格：短句为主，口语化，偶尔毒舌。')}
-
-{skill_data.get('persona', '')}
-
-## 记忆库（重要：这是背景知识，不要主动提及！）
-
-{skill_data.get('memories', '')}
-
-⚠️ 关于记忆库的严格规定：
-- 记忆库是用来让你了解"你是谁、你们什么关系、你记得什么"
-- **绝对不要**主动把记忆里的具体内容硬塞进回复
-- 只有当**用户主动提到相关话题**时，你才可以展开讨论
-- 正常闲聊时，记忆库只影响你的语气和态度，不影响你说的内容
-{emoji_section}
-{tools_section}
-
-⚠️ 回复多样性要求（非常重要）：
-- **绝对不要连续使用相同的回复或固定句式**
-- 每次回复都要根据当前对话上下文生成新的、有变化的内容
-- 保持语言的丰富性，不要陷入重复模式
-"""
-    
-    return prompt
+    return build_system_prompt(
+        skill_data=st.session_state.skill_data,
+        bot_name=get_bot_name(st.session_state.skill_data),
+        cfg=config,
+        include_emoji=config['features']['emoji'],
+        include_tools=config['tools']['web_search'],
+    )
 
 
 async def process_message(user_message: str) -> dict:
-    """处理用户消息的核心逻辑"""
-    import asyncio
-    
+    """处理用户消息 — Streamlit 适配层（核心逻辑委托给 core.handler）"""
+    import random
     config = st.session_state.config
-    llm = st.session_state.llm
     user_id = st.session_state.user_id
     
     start_time = datetime.now()
     
     add_to_history(user_id, "user", user_message)
+    history = get_history(user_id)
     
-    system_content = rebuild_system_prompt()
-    
-    retrieved = []
-    if config['memory']['long_term_enabled']:
-        retrieved = memory_store.search(
-            user_id=user_id,
-            query=user_message,
-            top_k=3,
-            min_score=0.2,
-        )
-        
-        if retrieved:
-            memory_context = format_retrieved_memories(retrieved)
-            system_content = f"{system_content}\n\n{memory_context}\n\n⚠️ 以上「相关记忆」仅供参考。如果与当前话题相关，你可以自然地引用或延续；如果不相关或用户没提到，直接忽略即可，不要强行提及。"
-    
-    messages = [
-        {"role": "system", "content": system_content},
-        *get_history(user_id),
-    ]
-    
-    tools = None
-    if any(config['tools'].values()):
-        tools = TOOL_DEFINITIONS
-    
-    completion = await llm.chat.completions.create(
-        model=config['model']['name'],
-        messages=messages,
-        tools=tools,
+    result = await core_process_message(
+        user_id=user_id,
+        user_message=user_message,
+        history=history[:-1] if history else [],
+        include_emoji=config['features']['emoji'],
     )
     
-    choice = completion.choices[0]
-    response_message = choice.message
-    
-    tool_calls = getattr(response_message, 'tool_calls', None)
-    used_tool = False
-    
-    if tool_calls and any(config['tools'].values()):
-        used_tool = True
-        messages.append(response_message.model_dump())
-        
-        for tool_call in tool_calls:
-            fn_name = tool_call.function.name
-            fn_args = json.loads(tool_call.function.arguments)
-            
-            tool_result = await execute_tool_call(fn_name, fn_args)
-            
-            messages.append({
-                "role": "tool",
-                "tool_call_id": tool_call.id,
-                "content": str(tool_result),
-            })
-        
-        final_completion = await llm.chat.completions.create(
-            model=config['model']['name'],
-            messages=messages,
-            tools=tools,
-        )
-        
-        raw_reply = final_completion.choices[0].message.content or ""
-    else:
-        raw_reply = response_message.content or ""
-    
-    ai_reply, emoji_keyword = parse_ai_response(raw_reply)
+    ai_reply = result["reply"]
+    emoji_keyword = result["emoji_keyword"]
     
     if ai_reply:
         add_to_history(user_id, "assistant", ai_reply)
         
         if config['memory']['long_term_enabled']:
-            if should_store_memory(user_message, role="user"):
-                memory_store.add(
-                    user_id=user_id,
-                    content=user_message,
-                    role="user",
-                    context_summary="Web用户消息",
-                )
-            if should_store_memory(ai_reply, role="assistant"):
-                memory_store.add(
-                    user_id=user_id,
-                    content=ai_reply,
-                    role="assistant",
-                    context_summary=f"{_get_bot_name()}的回复",
-                )
+            store_messages_to_memory(
+                user_id, user_message, ai_reply, get_bot_name(st.session_state.skill_data)
+            )
     
     latency = (datetime.now() - start_time).total_seconds() * 1000
     
     emoji_image_url = None
     if emoji_keyword and config['features'].get('emoji', False):
-        emoji_roll = __import__('random').random()
+        emoji_roll = random.random()
         if emoji_roll < config['features'].get('emoji_probability', 0.5):
             emoji_image_url = await fetch_emoji_image(emoji_keyword, config)
             if emoji_image_url:
@@ -431,18 +223,18 @@ async def process_message(user_message: str) -> dict:
             else:
                 logger.info(f"[emoji] 未获取到图片 (keyword={emoji_keyword})")
     
-    reply_parts = split_long_message(ai_reply or "（无回复）")
+    reply_parts = split_long_message(ai_reply or "\uff08\u65e0\u56de\u590d\uff09")
     is_split = len(reply_parts) > 1
     
     return {
-        "reply": ai_reply or "（无回复）",
+        "reply": ai_reply or "\uff08\u65e0\u56de\u590d\uff09",
         "reply_parts": reply_parts,
         "is_split": is_split,
         "emoji_keyword": emoji_keyword,
         "emoji_image_url": emoji_image_url,
-        "history_len": len(get_history(user_id)),
-        "used_memory": bool(retrieved),
-        "used_tool": used_tool,
+        "history_len": result.get("history_len", len(get_history(user_id))),
+        "used_memory": result.get("used_memory", False),
+        "used_tool": result.get("used_tool", False),
         "latency_ms": int(latency),
         "model": config['model']['name'],
     }
@@ -501,11 +293,11 @@ async def generate_proactive_message(user_id: str, config: dict) -> dict | None:
         last_msgs = history[-4:]
         context_parts = []
         for msg in last_msgs:
-            role_label = "用户" if msg['role'] == 'user' else _get_bot_name()
+            role_label = "用户" if msg['role'] == 'user' else get_bot_name(st.session_state.skill_data)
             context_parts.append(f"{role_label}: {msg['content'][:100]}")
         recent_context = "\n".join(context_parts)
     
-    proactive_prompt = f"""现在是{_get_bot_name()}主动发起对话的时候。
+    proactive_prompt = f"""现在是{get_bot_name(st.session_state.skill_data)}主动发起对话的时候。
 
 **任务**: 用{selected_style}的方式，主动给用户发一条消息。
 
@@ -515,7 +307,7 @@ async def generate_proactive_message(user_id: str, config: dict) -> dict | None:
 **注意事项**:
 - 消息要简短、自然，像微信聊天一样
 - 不要太长（1-3句话即可）
-- 要符合{_get_bot_name()}的人设和语气
+- 要符合{get_bot_name(st.session_state.skill_data)}的人设和语气
 - 可以用表情符号增加亲切感
 - 不要太刻意，要像随口说的一样
 
@@ -1081,7 +873,7 @@ def render_sidebar():
                     "styles": selected_styles,
                 }
                 
-                save_web_config(config)
+                save_config(config)
                 st.session_state.config = config
                 
                 skill_path = config['skill']['path']
@@ -1137,7 +929,7 @@ def render_sidebar():
                     CONFIG_FILE.unlink()
                     st.toast("🗑️ 已删除旧配置文件", icon="🗑️")
                 
-                st.session_state.config = load_web_config()
+                st.session_state.config = load_config()
                 st.session_state.selected_skill_path = st.session_state.config.get('skill', {}).get('path', '')
                 
                 st.warning("""
@@ -1220,15 +1012,15 @@ def render_chat():
     col_title, col_wechat = st.columns([3, 1])
     
     with col_title:
-        st.title(f"💬 {_get_bot_name()} AI 聊天")
+        st.title(f"💬 {get_bot_name(st.session_state.skill_data)} AI 聊天")
     
     with col_wechat:
         st.write("")
         
         if not st.session_state.wechat_connected:
             if st.button("📱 连接微信", use_container_width=True, type="primary"):
-                from main import _check_config_ready
-                ready, err_msg = _check_config_ready(override_cfg=config)
+                from core.config import check_config_ready
+                ready, err_msg = check_config_ready(override_cfg=config)
                 if not ready:
                     st.error(f"❌ 配置未就绪，无法连接微信\n\n{err_msg}")
                 else:
@@ -1246,13 +1038,8 @@ def render_chat():
                                 import threading
                                 
                                 def run_bot_in_thread():
-                                    import asyncio
-                                    loop = asyncio.new_event_loop()
-                                    asyncio.set_event_loop(loop)
-                                    try:
-                                        loop.run_until_complete(bot.run())
-                                    finally:
-                                        loop.close()
+                                    from main import bot
+                                    bot.run()
                                 
                                 bot_thread = threading.Thread(
                                     target=run_bot_in_thread,
@@ -1305,14 +1092,10 @@ def render_chat():
                 if qrcode_url:
                     qr_placeholder.markdown(f"""
                     <div style="text-align: center; padding: 20px;">
-                        <img src="{qrcode_url}" 
-                             style="
-                                 max-width: 280px;
-                                 border: 2px solid #ddd;
-                                 border-radius: 12px;
-                                 box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-                             " 
-                             alt="微信登录二维码">
+                        <a href="{qrcode_url}" target="_blank" 
+                           style="display: inline-block; padding: 12px 24px; background: #07C160; color: white; border-radius: 8px; text-decoration: none; font-size: 16px; font-weight: bold;">
+                            🔗 点击打开二维码链接
+                        </a>
                         <p style="color: #888; font-size: 13px; margin-top: 15px;">
                             ⏳ 等待扫码...（二维码有效期约 2 分钟）
                         </p>
@@ -1329,9 +1112,9 @@ def render_chat():
                         time.sleep(2)
                         poll_count += 1
                         
-                        from clawpy.core import poll_qr_status
+                        from clawpy.core import poll_qr_status, DEFAULT_BASE_URL
                         status_result = asyncio.run(
-                            poll_qr_status(qrcode_key=qrcode_key)
+                            poll_qr_status(base_url=DEFAULT_BASE_URL, qrcode=qrcode_key)
                         )
                         current_status = status_result.get("status", "wait")
                         
@@ -1369,16 +1152,26 @@ def render_chat():
                         elif current_status == "confirmed":
                             status_placeholder.success("✅✓✓ 登录成功！正在连接...")
                             
+                            bot_token = status_result.get("bot_token")
+                            ilink_bot_id = status_result.get("ilink_bot_id")
+                            ilink_user_id = status_result.get("ilink_user_id")
+                            
+                            if bot_token and ilink_bot_id and ilink_user_id:
+                                from clawpy.auth import save_credentials
+                                from clawpy.types import Credentials
+                                creds = Credentials(
+                                    token=bot_token,
+                                    base_url=DEFAULT_BASE_URL,
+                                    bot_id=ilink_bot_id,
+                                    user_id=ilink_user_id,
+                                )
+                                save_credentials(creds)
+                            
                             import threading
                             
                             def run_bot_after_login():
-                                import asyncio
-                                loop = asyncio.new_event_loop()
-                                asyncio.set_event_loop(loop)
-                                try:
-                                    loop.run_until_complete(bot.run())
-                                finally:
-                                    loop.close()
+                                from main import bot
+                                bot.run()
                             
                             bot_thread = threading.Thread(
                                 target=run_bot_after_login,
@@ -1415,11 +1208,57 @@ def render_chat():
                 if st.button("取消登录", use_container_width=True):
                     st.session_state.show_qr = False
                     st.rerun()
-        else:
-            if st.button("🔌 断开微信", use_container_width=True):
-                st.session_state.wechat_connected = False
-                st.toast("⚠️ 已断开微信连接", icon="🔌")
+        
+        is_connected = st.session_state.wechat_connected
+        
+        if st.button("🔌 断开机器人连接", use_container_width=True, disabled=not is_connected):
+            try:
+                from main import bot
+                bot.stop()
+            except Exception:
+                pass
+            st.session_state.wechat_connected = False
+            st.toast("⚠️ 已关闭微信连接", icon="🔌")
+            st.rerun()
+        
+        if 'confirm_logout' not in st.session_state:
+            st.session_state.confirm_logout = False
+        if 'logout_success' not in st.session_state:
+            st.session_state.logout_success = False
+        
+        if st.session_state.logout_success:
+            st.success("✅ 已退出微信clawbot连接并清除凭证，下次连接微信时需要重新扫码绑定")
+            if st.button("知道了", type="secondary"):
+                st.session_state.logout_success = False
                 st.rerun()
+        
+        if st.button("❌ 退出微信clawbot连接", use_container_width=True, type="secondary", disabled=not is_connected):
+            st.session_state.confirm_logout = True
+            st.rerun()
+        
+        if st.session_state.confirm_logout:
+            st.warning("该操作会永久断开微信clawbot的连接，下次连接微信时需要重新扫码绑定")
+            col_confirm, col_cancel = st.columns(2)
+            with col_confirm:
+                if st.button("确认退出", use_container_width=True, type="primary"):
+                    try:
+                        from main import bot
+                        bot.stop()
+                    except Exception:
+                        pass
+                    try:
+                        from clawpy.auth import clear_credentials
+                        clear_credentials()
+                    except Exception as e:
+                        st.error(f"清除凭证失败: {e}")
+                    st.session_state.wechat_connected = False
+                    st.session_state.confirm_logout = False
+                    st.session_state.logout_success = True
+                    st.rerun()
+            with col_cancel:
+                if st.button("取消", use_container_width=True):
+                    st.session_state.confirm_logout = False
+                    st.rerun()
     
     if st.session_state.wechat_connected:
         st.markdown("""
@@ -1441,7 +1280,7 @@ def render_chat():
                 断开微信后可恢复 Web 端聊天
             </p>
         </div>
-        """.format(_get_bot_name()), unsafe_allow_html=True)
+        """.format(get_bot_name(st.session_state.skill_data)), unsafe_allow_html=True)
         
         with st.expander("📊 微信运行状态", expanded=False):
             st.metric("状态", "✅ 运行中")

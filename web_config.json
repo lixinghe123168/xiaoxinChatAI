@@ -1,16 +1,16 @@
 {
   "model": {
-    "name": "",
-    "api_key": "",
+    "name": "deepseek-chat",
+    "api_key": "sk-xxxxxxxxxxxxxxxxxxxxxxxxx",
     "base_url": "https://api.deepseek.com"
   },
   "skill": {
-    "path": "",
+    "path": "path/to/your/skill/directory",
     "enabled": true
   },
   "memory": {
     "short_term_enabled": true,
-    "short_term_max": 35,
+    "short_term_max": 50,
     "long_term_enabled": true,
     "long_term_max": 200,
     "expire_days": 90,
@@ -31,7 +31,7 @@
       "api_key": "",
       "api_url": ""
     },
-    "max_messages": 3,
+    "max_messages": 10,
     "proactive_message": {
       "enabled": true,
       "interval_minutes": 5,

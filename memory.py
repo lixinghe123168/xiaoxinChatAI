@@ -180,6 +180,37 @@ class LongTermMemory:
         
         return result[:10]
     
+    def _extract_ngram_keywords(self, text: str) -> list[str]:
+        """从文本提取短 n-gram 关键词（2-3字），用于精确 LIKE 匹配
+        
+        与 _extract_keywords 互补：_extract_keywords 提取语义关键词，
+        本方法提取所有短字符片段，适合 LIKE '%xx%' 精确命中。
+        """
+        stop_words = {
+            "的", "了", "是", "在", "我", "有", "和", "就", "不", "人", "都", "一",
+            "一个", "上", "也", "很", "到", "说", "要", "去", "你", "会", "着", "没有",
+            "看", "好", "自己", "这", "她", "他", "它", "们", "那个", "什么", "这个",
+            "吗", "呢", "吧", "啊", "哦", "嗯", "哈", "呀", "嘛", "呗", "哇", "诶",
+            "可以", "知道", "觉得", "感觉", "应该", "可能", "就是", "还是", "或者",
+            "因为", "所以", "但是", "然后", "如果", "虽然", "已经", "正在", "一直",
+            "真的", "特别", "比较", "非常", "挺", "蛮", "超", "巨", "太",
+            "怎么", "为什么", "哪", "多少", "几个", "谁", "哪里", "什么时候",
+            "对", "对吧", "对不对", "是不是", "能不能", "有没有", "会不会",
+            "那", "这样", "那样", "这么", "那么", "如何", "怎样",
+        }
+
+        text = re.sub(r'[^\u4e00-\u9fffA-Za-z0-9]', '', text)
+        ngrams = set()
+
+        for i in range(len(text)):
+            for n in (2, 3):
+                if i + n <= len(text):
+                    gram = text[i:i + n]
+                    if gram not in stop_words and len(gram) >= 2:
+                        ngrams.add(gram)
+
+        return list(ngrams)[:10]
+
     def add(
         self,
         user_id: str,
@@ -285,6 +316,48 @@ class LongTermMemory:
             seen_hashes = set()
             scored = []
             
+            # 0. 关键词精确匹配（最高优先级）
+            # 使用短 n-gram（2-3字）做精确关键词命中，解决长关键词无法匹配的问题
+            ngram_keywords = self._extract_ngram_keywords(query)
+            all_match_kw = list(dict.fromkeys(query_keywords + ngram_keywords))[:8]
+
+            if all_match_kw:
+                kw_placeholders = " OR ".join(["keywords LIKE ?"] * len(all_match_kw))
+                kw_params = [f"%{kw}%" for kw in all_match_kw]
+
+                exact_rows = conn.execute(f"""
+                    SELECT m.id, m.content, m.keywords, m.role, m.timestamp,
+                           m.source_context, m.access_count
+                    FROM memories m
+                    WHERE m.user_id=? AND ({kw_placeholders})
+                    ORDER BY m.access_count DESC, m.timestamp DESC
+                    LIMIT ?
+                """, (user_id, *kw_params, top_k * 2)).fetchall()
+
+                for row in exact_rows:
+                    h = hashlib.md5(row["content"].encode()).hexdigest()
+                    if h in seen_hashes:
+                        continue
+                    seen_hashes.add(h)
+
+                    mem_keywords = set(row["keywords"].split()) if row["keywords"] else set()
+                    qk_all = set(all_match_kw)
+                    overlap = len(qk_all & mem_keywords)
+
+                    age_days = (time.time() - row["timestamp"]) / 86400
+                    recency = 1.0 if age_days < 7 else (0.8 if age_days < 30 else 0.6)
+                    keyword_score = min(overlap / max(len(qk_all), 1), 1.0) * 0.95
+
+                    scored.append({
+                        "content": row["content"],
+                        "score": round(keyword_score * recency, 3),
+                        "keywords": list(qk_all & mem_keywords),
+                        "role": row["role"],
+                        "age_days": round(age_days, 1),
+                        "context": row["source_context"],
+                        "source": "keyword_exact",
+                    })
+            
             # 1. FTS5 全文搜索
             fts_terms = " OR ".join(
                 f'"{kw}"' for kw in query_keywords[:5]
@@ -320,6 +393,7 @@ class LongTermMemory:
                             "role": row["role"],
                             "age_days": round(age_days, 1),
                             "context": row["source_context"],
+                            "source": "fts5",
                         })
                 except sqlite3.OperationalError:
                     pass
@@ -369,21 +443,13 @@ class LongTermMemory:
                             "role": row["role"],
                             "age_days": round(age_days, 1),
                             "context": row["source_context"],
+                            "source": "jaccard",
                         })
             
-            scored.sort(key=lambda x: x["score"], reverse=True)
-            
-            seen_content = set()
-            deduped = []
-            for r in scored:
-                if r["content"] not in seen_content:
-                    seen_content.add(r["content"])
-                    deduped.append(r)
-            
-            results = deduped[:top_k]
+            results = self._rrf_fuse(scored)[:top_k]
             
             for r in results:
-                logger.debug(f"[memory] 检索命中: score={r['score']} | {r['content'][:40]}")
+                logger.debug(f"[memory] 检索命中: score={r['score']} source={r.get('source','?')} | {r['content'][:40]}")
             
             return results
             
@@ -393,6 +459,47 @@ class LongTermMemory:
         finally:
             conn.close()
     
+    def _rrf_fuse(self, candidates: list[dict], k: int = 10) -> list[dict]:
+        """RRF (Reciprocal Rank Fusion) 融合多检索源结果
+        
+        RRF 公式: score(d) = Σ 1/(k + rank_i(d))
+        其中 rank_i(d) 是文档 d 在第 i 个检索器中的排名
+        
+        不同检索源各有所长，RRF 能公平地融合它们的排序，
+        避免某个来源的高分结果完全淹没其他来源的有效结果。
+        """
+        if not candidates:
+            return []
+
+        sources: dict[str, list[dict]] = {}
+        for c in candidates:
+            src = c.get("source", "unknown")
+            if src not in sources:
+                sources[src] = []
+            sources[src].append(c)
+
+        for src_list in sources.values():
+            src_list.sort(key=lambda x: x["score"], reverse=True)
+
+        content_scores: dict[str, tuple[float, dict]] = {}
+        for src, src_list in sources.items():
+            for rank, item in enumerate(src_list, start=1):
+                content = item["content"]
+                rrf_score = 1.0 / (k + rank)
+                if content in content_scores:
+                    old_score, old_item = content_scores[content]
+                    content_scores[content] = (old_score + rrf_score, item)
+                else:
+                    content_scores[content] = (rrf_score, item)
+
+        fused = []
+        for content, (rrf_score, item) in content_scores.items():
+            item["score"] = round(rrf_score, 4)
+            fused.append(item)
+
+        fused.sort(key=lambda x: x["score"], reverse=True)
+        return fused
+
     def get_recent(
         self,
         user_id: str,

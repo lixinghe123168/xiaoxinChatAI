@@ -25,9 +25,9 @@ xiaoxinChatAI 是一个纯 Python 实现的 AI 微信机器人，集成了大语
 
 ### 记忆系统
 
-- **短期记忆**：内存缓存最近 N 轮对话（默认 20 轮）
+- **短期记忆**：内存缓存最近 N 轮对话（默认 20 轮）+ 弹性窗口自动压缩旧对话为摘要
 - **长期记忆**：SQLite + FTS5 全文索引持久化存储
-- **三重检索**：FTS5 全文搜索 + 关键词匹配 + Jaccard 相似度
+- **四重检索**：n-gram 精确匹配 + FTS5 全文搜索 + 关键词匹配 + Jaccard 相似度，RRF 融合排序
 - **智能去重**：相同内容自动合并，不重复存储
 - **自动过期**：超期记忆自动清理（默认 90 天）
 - **智能判断**：仅存储有价值的信息（偏好、经历、事件等），过滤日常问候
@@ -44,6 +44,29 @@ xiaoxinChatAI 是一个纯 Python 实现的 AI 微信机器人，集成了大语
 - AI 自动根据对话情绪选择表情包关键词
 - 调用第三方 API 获取并发送 GIF 表情包
 - 可配置发送概率、关键词列表
+
+**表情包 API 申请：**
+
+本项目默认使用 **原田 API**（免费），申请步骤：
+
+1. 访问 [原田 API 开放平台](https://open.alapi.cn/) 注册账号
+2. 进入控制台，创建一个新应用
+3. 获取 `api_id` 和 `api_key`
+4. 在 `web_config.json` 中配置：
+
+```json
+{
+  "features": {
+    "emoji_api": {
+      "api_id": "your_api_id",
+      "api_key": "your_api_key",
+      "api_url": "https://v2.alapi.cn/api/dog"
+    }
+  }
+}
+```
+
+> 💡 也可使用其他兼容的表情包 API，只需替换 `api_url` 为对应的接口地址即可。
 
 ### 主动消息
 
@@ -77,14 +100,23 @@ xiaoxinChatAI 是一个纯 Python 实现的 AI 微信机器人，集成了大语
 
 ```
 xiaoxinChatAI/
-├── main.py              # 主程序：AI 对话处理核心
-├── memory.py            # 长期记忆系统（SQLite + FTS5）
-├── tools.py             # 联网工具（搜索/天气/新闻）
-├── content_filter.py    # 内容安全过滤
+├── main.py              # 微信机器人入口（消息收发、多段发送、主动消息）
 ├── web_ui.py            # Streamlit Web 管理界面
 ├── web_config.json      # 配置文件
 ├── pyproject.toml       # 项目依赖配置
 ├── start_web.bat        # 启动脚本
+│
+├── core/                # 🆕 核心逻辑层（CLI / GUI 共享）
+│   ├── __init__.py
+│   ├── config.py        # 统一配置管理（加载 / 保存 / 合并）
+│   ├── session.py       # 共享会话状态（短期记忆 + 弹性窗口摘要）
+│   ├── skill.py         # Skill 人设加载
+│   ├── prompt.py        # System Prompt 构建 + AI 回复解析
+│   └── handler.py       # 消息处理核心（LLM 调用 + Function Calling）
+│
+├── memory.py            # 长期记忆系统（SQLite + FTS5 + n-gram + Jaccard）
+├── tools.py             # 联网工具（搜索 / 天气 / 新闻）
+├── content_filter.py    # 内容安全过滤
 │
 ├── clawpy/              # 微信 iLink Bot 纯 Python SDK
 │   ├── __init__.py      # 包入口
@@ -96,12 +128,13 @@ xiaoxinChatAI/
 ├── Vocabulary/           # 敏感词库（15 个分类）
 │   ├── 反动词库.txt
 │   ├── 色情词库.txt
-│   ├── 暴恐词库.txt
 │   └── ...
 │
 └── memory_data/          # 记忆数据存储
-    └── long_term_memory.db  # SQLite 数据库
+    └── long_term_memory.db
 ```
+
+**设计原则：** `core/` 是纯逻辑层，不依赖微信也不依赖 Streamlit。`main.py` 和 `web_ui.py` 只做"入口适配"，共享同一份核心逻辑。新增第三入口（如 API 服务）只需调 `core.handler.process_message()` 即可。
 
 ***
 
@@ -222,8 +255,8 @@ DeepSeek Chat 是目前性价比最高的模型之一，按量计费，用多少
 
 | 组成部分 | 来源 | 大约 tokens |
 |---------|------|:----------:|
-| **系统提示词** | `_build_full_prompt()` — 人设 + 表情包规则 + 多样性要求 + 工具说明 + 长期记忆 | **1,500** |
-| **短期记忆历史** | 默认最多 20 轮对话，每轮约 250 tokens（用户50+回复200），历史越久输入越大 | 0 ~ 5,000 |
+| **系统提示词** | `build_system_prompt()` — 人设 + 表情包规则 + 多样性要求 + 联网说明 + 长期记忆检索结果 | **1,500** |
+| **短期记忆历史** | 默认最多 20 轮对话，含弹性窗口压缩的旧对话摘要，每轮约 250 tokens（用户50+回复200）| 0 ~ 5,000 |
 | **当前用户消息** | 最新一条消息 | **50** |
 
 > 短期记忆 = 最近 20 轮对话，每轮约 250 tokens。每次调用时**全部历史都会重新发给模型**，所以聊得越久单次输入越大。
@@ -274,7 +307,7 @@ DeepSeek Chat 是目前性价比最高的模型之一，按量计费，用多少
 
 **注意：** 实际消耗还会受以下因素影响：
 - System Prompt 越长越贵（人设越详细、记忆越多、工具说明越多）
-- 短期记忆轮数越大越贵（`short_term_max` 默认 20，调小可以省钱）
+- 短期记忆轮数越大越贵（`short_term_max` 默认 20，弹性窗口会在超限后自动压缩旧对话为摘要，控制 token 消耗）
 - 长期记忆搜到的条数越多越贵（`retrieval_top_k` 默认 5）
 - 联网搜索（Function Calling）会额外消耗一轮对话
 
@@ -376,6 +409,8 @@ cd llama.cpp/build/bin/Release
 
 ## 配置说明
 
+> 💡 所有配置项的默认值、类型和完整定义见 [`core/config.py`](core/config.py) 中的 `DEFAULT_CONFIG` 字典，以下为摘要。
+
 ### 模型配置 (`model`)
 
 | 参数         | 说明                               |
@@ -424,26 +459,31 @@ Skill 目录需包含以下文件：
 
 ## 核心模块说明
 
-### 主程序 (`main.py`)
+### 核心逻辑层 (`core/`)
+
+`core/` 是项目的纯逻辑层，`main.py`（微信）和 `web_ui.py`（Web）共享同一套核心代码：
+
+| 文件 | 职责 |
+|------|------|
+| `config.py` | 统一配置管理：加载 JSON 配置、深度合并默认值、文件修改时间缓存 |
+| `session.py` | 共享会话状态：短期记忆（`chat_histories`）、弹性窗口摘要（`chat_summaries`）、自动压缩旧对话 |
+| `skill.py` | Skill 人设加载：解析 `config.yaml` / `persona.md` / `memories.md` |
+| `prompt.py` | System Prompt 构建：注入当前时间、人设、记忆、联网说明、表情包规则，以及 AI 回复解析 |
+| `handler.py` | 消息处理核心：长期记忆检索 → Prompt 构建 → LLM 调用 → Function Calling → 回复解析 |
 
 消息处理流程：
 
 ```
-接收微信消息
+接收消息
     │
-    ├─ 非文本消息（图片/语音/视频/文件）
-    │   ├─ send_to_ai=True → 提取信息后发给 AI
-    │   └─ send_to_ai=False → 回复友好提示
+    ├─ core.handler.process_message()
+    │   ├─ 1. 检索长期记忆（四重匹配）
+    │   ├─ 2. 构建 System Prompt（含当前时间 + 对话摘要）
+    │   ├─ 3. 调用 LLM（支持 Function Calling）
+    │   ├─ 4. 执行工具调用（搜索 / 天气 / 新闻）
+    │   └─ 5. 解析 AI 回复 → 返回 {reply, emoji_keyword, ...}
     │
-    └─ 文本消息
-        ├─ 搜索长期记忆（相关度排序）
-        ├─ 构建 System Prompt（人设 + 记忆 + 工具说明）
-        ├─ 调用 LLM（支持 Function Calling）
-        ├─ 执行工具调用（搜索/天气/新闻）
-        ├─ 解析 AI 回复（提取表情包标记）
-        ├─ 发送消息（自动分片）
-        ├─ 发送表情包（按概率触发）
-        └─ 存入长期记忆
+    └─ 入口层（main.py / web_ui.py）处理发送逻辑
 ```
 
 ### 长期记忆系统 (`memory.py`)
@@ -453,12 +493,17 @@ Skill 目录需包含以下文件：
 - **数据库**：SQLite + WAL 模式，支持高并发读取
 - **全文索引**：FTS5，自动通过触发器同步
 - **去重机制**：MD5 内容哈希，相同内容自动更新时间戳
+- **自动过期**：超期记忆自动清理（默认 90 天）
+- **智能过滤**：仅存储有价值的信息（偏好、经历、事件等），过滤日常问候
 
-**检索策略（三重匹配）：**
+**检索策略（四重匹配 + RRF 融合）：**
 
-1. FTS5 全文搜索 — 最优先，使用查询关键词的 OR 组合
-2. 关键词 LIKE 匹配 — 补充，计算 Jaccard 相似度
-3. 时间衰减排序 — 近期记忆权重更高
+| 层级 | 方法 | 说明 |
+|------|------|------|
+| 0 | n-gram LIKE 精确匹配 | 2-3字短关键词直接 LIKE 命中，最高优先级 |
+| 1 | FTS5 全文搜索 | 新增对话自动建立索引 |
+| 2 | 关键词 LIKE + Jaccard | 语义关键词的 Jaccard 相似度兜底 |
+| 融合 | RRF (Reciprocal Rank Fusion) | 融合多检索源排名，避免单一方法偏差 |
 
 ### 联网工具 (`tools.py`)
 
