@@ -943,6 +943,9 @@ class WxClawBot:
                     creds.base_url, creds.token, self._cursor
                 )
                 
+                if self._stopped:
+                    break
+                
                 self._cursor = result.get("get_updates_buf", "") or self._cursor
                 retry_delay = INITIAL_RETRY_DELAY
                 
