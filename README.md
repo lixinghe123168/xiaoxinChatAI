@@ -9,7 +9,7 @@ xiaoxinChatAI 是一个纯 Python 实现的 AI 微信机器人，集成了大语
 | 平台 | 地址 |
 |------|------|
 | **Gitee**（国内推荐） | [https://gitee.com/lixinghee/xiaoxin-chat-ai](https://gitee.com/lixinghee/xiaoxin-chat-ai) |
-| **GitHub** | [https://github.com/lixinghee/xiaoxin-chat-ai](https://github.com/lixinghee/xiaoxin-chat-ai) |
+| **GitHub** | [https://github.com/lixinghe123168/xiaoxinChatAI](https://github.com/lixinghe123168/xiaoxinChatAI) |
 
 ***
 
