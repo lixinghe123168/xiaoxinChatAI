@@ -24,7 +24,7 @@ def load_skill(skill_dir: Path) -> dict:
         prompt_match = re.search(r"system_prompt:\s*\|\s*\n(.+?)(?=\n\w|\Z)", raw, re.DOTALL)
         style_section = re.search(r"response_style:\s*\n((?:\s*-\s*.+\n?)+)", raw)
 
-        result["config"]["name"] = name_match.group(1).strip() if name_match else "小佳"
+        result["config"]["name"] = name_match.group(1).strip() if name_match else "AI助手"
         result["config"]["description"] = desc_match.group(1).strip() if desc_match else ""
         result["config"]["system_prompt"] = prompt_match.group(1).strip() if prompt_match else ""
         result["config"]["style"] = [l.strip().lstrip("- ").strip() for l in style_section.group(1).split("\n") if l.strip().lstrip("- ").strip()] if style_section else []
@@ -41,7 +41,7 @@ def load_skill(skill_dir: Path) -> dict:
 
 
 def get_bot_name(skill_data: dict) -> str:
-    name = skill_data.get("config", {}).get("name", "")
+    name = skill_data.get("config", {}).get("name_zh", "")
     if name:
         return name
     return "小欣"
