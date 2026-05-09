@@ -1,7 +1,7 @@
 {
   "model": {
     "name": "deepseek-chat",
-    "api_key": "sk-your-api-key-here",
+    "api_key": "sk-xxxxxxxxxxxxxxxxxx",
     "base_url": "https://api.deepseek.com"
   },
   "skill": {
