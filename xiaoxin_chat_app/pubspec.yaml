@@ -23,6 +23,8 @@ dependencies:
   crypto: ^3.0.3
   file_picker: ^8.0.0
   receive_sharing_intent: ^1.8.1
+  encrypt: ^5.0.1
+  mime: ^1.0.4
 
 dev_dependencies:
   flutter_test:
