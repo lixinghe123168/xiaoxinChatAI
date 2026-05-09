@@ -37,6 +37,7 @@ wxclaw.client - Bot 客户端模块
 import asyncio
 import inspect
 import json
+import logging
 import aiohttp
 from collections.abc import Callable
 from datetime import datetime, timezone
@@ -932,7 +933,9 @@ class WxClawBot:
         3. 处理异常（普通错误重连 / 会话过期重登录）
         4. 指数退避避免频繁重试
         """
+        _log = logging.getLogger("wxclaw.polling")
         print("[wxclaw] 长轮询启动...")
+        _log.info("polling loop started")
         retry_delay = INITIAL_RETRY_DELAY
         
         while not self._stopped:
@@ -944,6 +947,8 @@ class WxClawBot:
                 )
                 
                 if self._stopped:
+                    print("[wxclaw] 长轮询收到停止信号")
+                    _log.info("polling stopped by signal")
                     break
                 
                 self._cursor = result.get("get_updates_buf", "") or self._cursor
@@ -959,9 +964,11 @@ class WxClawBot:
                     await self._dispatch(incoming)
                     
             except asyncio.CancelledError:
+                _log.warning("polling cancelled")
                 break
                 
             except ILinkError as err:
+                _log.warning("ILinkError: %s (session_expired=%s)", err, err.is_session_expired)
                 if err.is_session_expired:
                     print("[wxclaw] ⚠️  会话过期，正在重新登录...")
                     self._credentials = None
@@ -977,6 +984,7 @@ class WxClawBot:
                         continue
                     except Exception as login_err:
                         print(f"[wxclaw] ❌ 重新登录失败: {login_err}")
+                        _log.error("relogin failed: %s", login_err)
                         
                 else:
                     print(f"[wxclaw] ❌ API 错误: {err}")
@@ -984,11 +992,19 @@ class WxClawBot:
                 await asyncio.sleep(retry_delay)
                 retry_delay = min(retry_delay * 2, MAX_RETRY_DELAY)
                 
-            except Exception as err:
-                print(f"[wxclaw] ❌ 未预期异常: {err}")
+            except KeyboardInterrupt:
+                _log.info("polling interrupted by user")
+                print("[wxclaw] 收到退出信号，停止长轮询")
+                self._stopped = True
+                break
+                
+            except BaseException as err:
+                _log.error("polling unexpected error: %s %s", type(err).__name__, err)
+                print(f"[wxclaw] ❌ 未预期异常 [{type(err).__name__}]: {err}")
                 await asyncio.sleep(retry_delay)
                 retry_delay = min(retry_delay * 2, MAX_RETRY_DELAY)
         
+        _log.info("polling loop exited (stopped=%s)", self._stopped)
         print("[wxclaw] 🔴 长轮询已停止")
     
     def _cache_context(self, raw_msg: dict) -> None:

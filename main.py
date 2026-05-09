@@ -9,9 +9,8 @@ import re
 import json
 import random
 import asyncio
+import time
 import os
-import threading
-import time as _time_module
 from pathlib import Path
 from clawpy import WxClawBot
 
@@ -152,7 +151,7 @@ async def handle(msg):
 
     _log.info(f"[msg] {msg.user_id}: {msg.text[:50]}")
 
-    _last_active_time[msg.user_id] = _time_module.time()
+    _last_active_time[msg.user_id] = time.time()
 
     await bot.show_typing(msg.user_id)
 
@@ -274,7 +273,7 @@ async def _proactive_checker():
 
             check_interval = proactive_cfg.get("interval_minutes", 30) * 60
             await asyncio.sleep(check_interval)
-            now = _time_module.time()
+            now = time.time()
 
             max_idle = proactive_cfg.get("max_idle_minutes", 120) * 60
             probability = proactive_cfg.get("probability", 0.3)
@@ -348,7 +347,7 @@ async def _proactive_checker():
                                 role="assistant",
                                 context_summary="[主动消息] 开场",
                             )
-                        _last_active_time[user_id] = _time_module.time()
+                        _last_active_time[user_id] = time.time()
 
                 except Exception as ue:
                     _log.warning(f"[proactive] 发送失败 ({user_id}): {ue}")
@@ -375,10 +374,18 @@ if __name__ == "__main__":
     bot.login()
     print(f"\n[{bot_name}] 已上线!\n")
 
-    _proactive_thread = threading.Thread(
-        target=lambda: asyncio.run(_proactive_checker()),
-        daemon=True,
-    )
-    _proactive_thread.start()
+    async def async_main():
+        bot._stopped = False
+        await asyncio.gather(
+            bot._run_loop(),
+            _proactive_checker(),
+        )
 
-    bot.run()
+    try:
+        asyncio.run(async_main())
+    except KeyboardInterrupt:
+        print("\n[bot] 用户退出，正在停止...")
+        bot.stop()
+    except Exception as e:
+        print(f"\n[bot] 异常退出: {e}")
+        logger.error(f"Fatal error: {e}", exc_info=True)
