@@ -29,7 +29,8 @@ from typing import Any
 
 logger = logging.getLogger("xiaoxinChatAI.tools")
 
-SEARCH_TIMEOUT = 15
+SEARCH_TIMEOUT = 5
+TOOL_TIMEOUT = 10
 
 _CONFIG_FILE = Path(__file__).parent / "web_config.json"
 
@@ -127,7 +128,10 @@ async def _fetch_text(url: str, params: dict | None = None) -> tuple[int, str]:
 
 
 async def web_search(query: str) -> str:
-    """网络搜索 - 根据配置自动选择搜索源
+    """网络搜索 - 自动多源 fallback
+    
+    按配置源 → bing → duckduckgo 顺序尝试，
+    上一个源失败（超时/无结果/异常）自动切换下一个。
     
     Args:
         query: 搜索关键词
@@ -140,12 +144,45 @@ async def web_search(query: str) -> str:
     source = _get_search_source()
     logger.info(f"[tool] web_search 搜索源: {source}")
     
-    if source == "bing":
-        return await _search_bing(query)
+    sources = []
+    if source == "duckduckgo":
+        sources = ["duckduckgo", "bing", "searxng"]
+    elif source == "bing":
+        sources = ["bing", "searxng", "duckduckgo"]
     elif source == "searxng":
-        return await _search_searxng(query)
+        sources = ["searxng", "bing", "duckduckgo"]
     else:
-        return await _search_duckduckgo(query)
+        sources = ["bing", "searxng", "duckduckgo"]
+    
+    searchers = {
+        "searxng": _search_searxng,
+        "bing": _search_bing,
+        "duckduckgo": _search_duckduckgo,
+    }
+    
+    tried_sources = []
+    for src in sources:
+        searcher = searchers.get(src)
+        if not searcher:
+            continue
+        try:
+            result = await asyncio.wait_for(
+                searcher(query),
+                timeout=SEARCH_TIMEOUT,
+            )
+            if result and "暂时不可用" not in result and "搜索出错" not in result and "超时" not in result:
+                logger.info(f"[tool] {src} 搜索成功")
+                return result
+            tried_sources.append(f"{src}(返回空)")
+        except asyncio.TimeoutError:
+            tried_sources.append(f"{src}(超时)")
+            logger.warning(f"[tool] {src} 超时，尝试下一源")
+        except Exception as e:
+            tried_sources.append(f"{src}({type(e).__name__})")
+            logger.warning(f"[tool] {src} 失败: {e}，尝试下一源")
+    
+    fail_info = " → ".join(tried_sources)
+    return f"搜索服务暂时不可用（已尝试: {fail_info}）"
 
 
 async def _search_duckduckgo(query: str) -> str:
@@ -284,11 +321,13 @@ async def _search_bing(query: str) -> str:
 
 
 async def _search_searxng(query: str) -> str:
-    """SearXNG 元搜索 - 国内可用，无需 API Key"""
+    """SearXNG 元搜索"""
     instances = [
         "https://searx.be",
         "https://search.sapti.me",
         "https://searx.work",
+        "https://northboot.xyz",
+        "https://search.nerdvpn.de",
     ]
     
     last_error = ""
@@ -305,7 +344,7 @@ async def _search_searxng(query: str) -> str:
             }
             
             async with aiohttp.ClientSession(
-                timeout=aiohttp.ClientTimeout(total=10),
+                timeout=aiohttp.ClientTimeout(total=5),
             ) as session:
                 async with session.get(url, params=params) as resp:
                     if resp.status != 200:
@@ -336,21 +375,16 @@ async def _search_searxng(query: str) -> str:
             
             if results:
                 result_text = "\n".join(results)
-                logger.info(f"[tool] searxng({instance}) 结果长度: {len(result_text)}")
                 return result_text
             
             last_error = "无结果"
             
         except asyncio.TimeoutError:
             last_error = "超时"
-            logger.warning(f"[tool] searxng 实例超时: {instance}")
-            continue
         except Exception as e:
             last_error = f"{type(e).__name__}"
-            logger.warning(f"[tool] searxng 实例失败: {instance}: {e}")
-            continue
     
-    return f"搜索服务暂时不可用（已尝试 {len(instances)} 个节点）"
+    return ""
 
 
 async def get_weather(city: str) -> str:

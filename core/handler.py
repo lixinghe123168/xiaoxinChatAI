@@ -1,6 +1,7 @@
 """统一消息处理核心 — CLI 和 GUI 共用"""
 import json
 import re
+import asyncio
 import time
 import hashlib
 import logging
@@ -12,7 +13,7 @@ from .skill import get_skill_data, get_bot_name
 from .prompt import build_system_prompt_with_memory, parse_ai_response, EMOJI_KEYWORDS
 
 from memory import memory_store, format_retrieved_memories, should_store_memory
-from tools import TOOL_DEFINITIONS, execute_tool_call
+from tools import TOOL_DEFINITIONS, execute_tool_call, TOOL_TIMEOUT
 
 logger = logging.getLogger("xiaoxinChatAI.core.handler")
 
@@ -162,7 +163,14 @@ async def process_message(
             fn_args = json.loads(tool_call.function.arguments)
 
             logger.info(f"[tool] 执行: {fn_name}({fn_args})")
-            tool_result = await execute_tool_call(fn_name, fn_args)
+            try:
+                tool_result = await asyncio.wait_for(
+                    execute_tool_call(fn_name, fn_args),
+                    timeout=TOOL_TIMEOUT,
+                )
+            except asyncio.TimeoutError:
+                tool_result = f"[{fn_name}] 执行超时（{TOOL_TIMEOUT}s），已跳过"
+                logger.warning(f"[tool] {fn_name} 超时，跳过")
             logger.info(f"[tool] {fn_name} 结果: {str(tool_result)[:100]}...")
 
             messages.append({
@@ -185,10 +193,17 @@ async def process_message(
         if final_completion.choices[0].message.tool_calls:
             logger.warning("[tool] AI 再次请求工具调用，忽略并使用当前结果")
             for tc in final_completion.choices[0].message.tool_calls:
-                result = await execute_tool_call(
-                    tc.function.name,
-                    json.loads(tc.function.arguments),
-                )
+                try:
+                    result = await asyncio.wait_for(
+                        execute_tool_call(
+                            tc.function.name,
+                            json.loads(tc.function.arguments),
+                        ),
+                        timeout=TOOL_TIMEOUT,
+                    )
+                except asyncio.TimeoutError:
+                    result = f"[{tc.function.name}] 超时"
+                    logger.warning(f"[tool] 二次调用 {tc.function.name} 超时")
                 raw_reply += f"\n\n[{tc.function.name}]: {result}"
     else:
         raw_reply = response_message.content or ""
