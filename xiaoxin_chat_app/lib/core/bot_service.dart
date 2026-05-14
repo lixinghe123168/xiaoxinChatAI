@@ -573,11 +573,43 @@ ${_skillData.memories}
 
       return botMsg;
     } catch (e) {
-      final errorMsg = ChatMessage.system('AI 回复失败: $e');
+      final errorMsg = ChatMessage.system(_formatErrorForUser(e));
       _chatHistory.add(errorMsg);
       _messageStream?.add(errorMsg);
       return errorMsg;
     }
+  }
+
+  String _formatErrorForUser(dynamic e) {
+    final msg = e.toString();
+    if (msg.contains('401') || msg.contains('Unauthorized') || msg.contains('invalid_api_key')) {
+      return '⚠️ API Key 无效或已过期，请检查设置中的 API Key';
+    }
+    if (msg.contains('402') || msg.contains('insufficient') || msg.contains('余额') || msg.contains('quota')) {
+      return '⚠️ API 余额不足（402），请充值后再试';
+    }
+    if (msg.contains('429') || msg.contains('rate_limit') || msg.contains('too_many_requests')) {
+      return '⚠️ 请求太频繁了（429），稍等一下再发消息吧';
+    }
+    if (msg.contains('403') || msg.contains('Forbidden') || msg.contains('permission')) {
+      return '⚠️ API 访问被拒绝（403），请检查权限配置';
+    }
+    if (msg.contains('404') || msg.contains('Not Found') || msg.contains('model_not_found')) {
+      return '⚠️ 模型不存在（404），请检查设置中的模型名称';
+    }
+    if (msg.contains('500') || msg.contains('502') || msg.contains('503') || msg.contains('server_error')) {
+      return '⚠️ AI 服务暂时不可用，请稍后重试';
+    }
+    if (msg.contains('timeout') || msg.contains('TimeoutException') || msg.contains('超时') || msg.contains('timed out')) {
+      return '⏰ 回复超时了，AI 可能正在思考比较久的问题，再试试吧';
+    }
+    if (msg.contains('SocketException') || msg.contains('网络') || msg.contains('connection') || msg.contains('NetworkImage')) {
+      return '🌐 网络连接失败，请检查网络后重试';
+    }
+    if (msg.contains('context_length_exceeded') || msg.contains('max_tokens') || msg.contains('token')) {
+      return '📝 消息太长了，换个话题聊吧~';
+    }
+    return '😵 AI 回复出了点问题: $msg';
   }
 
   Future<QrCodeResult> getWechatQrCode() async {
@@ -765,6 +797,7 @@ ${_skillData.memories}
       await prefs.setDouble('_bg_retrieval_min_score', _config.memory.retrievalMinScore);
       await prefs.setInt('_bg_expire_days', _config.memory.expireDays);
       await prefs.setBool('_bg_proactive_enabled', _config.features.proactiveMessage.enabled);
+      await prefs.setInt('_bg_proactive_interval', _config.features.proactiveMessage.intervalMinutes);
       await prefs.setInt('_bg_proactive_max_idle', _config.features.proactiveMessage.maxIdleMinutes);
       await prefs.setDouble('_bg_proactive_probability', _config.features.proactiveMessage.probability);
       await prefs.setBool('_bg_img_send_to_ai', _config.features.imageHandling.sendToAi);

@@ -79,3 +79,11 @@ Thumbs.db
 # 项目特定
 clawpy/__pycache__/
 wxclaw/__pycache__/
+
+# Flutter/Android 构建缓存
+xiaoxin_chat_app/android/.gradle_home/
+xiaoxin_chat_app/build/
+xiaoxin_chat_app/.dart_tool/
+xiaoxin_chat_app/.packages
+*.apk
+*.aab

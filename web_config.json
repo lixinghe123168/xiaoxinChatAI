@@ -1,11 +1,11 @@
 {
   "model": {
     "name": "deepseek-chat",
-    "api_key": "sk-xxxxxxxxxxxxxxxxxx",
+    "api_key": "sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxx",
     "base_url": "https://api.deepseek.com"
   },
   "skill": {
-    "path": "C:\\Users\\Administrator\\.openclaw\\workspace\\skills\\xiaojia",
+    "path": "",
     "enabled": true
   },
   "memory": {

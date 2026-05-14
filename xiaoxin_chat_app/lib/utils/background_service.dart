@@ -216,8 +216,8 @@ void _backgroundEntry(ServiceInstance service) async {
       // Proactive messaging (check every 1 minute)
       if (prefs.getBool('_bg_proactive_enabled') == true && chatHistory.length >= 2) {
         if (lastUserMsgTime.minute != DateTime.now().minute) {
-          final maxIdle = prefs.getInt('_bg_proactive_max_idle') ?? 5;
-          final prob = prefs.getDouble('_bg_proactive_probability') ?? 0.3;
+          final maxIdle = prefs.getInt('_bg_proactive_max_idle') ?? 10;
+          final prob = prefs.getDouble('_bg_proactive_probability') ?? 0.8;
           final idle = DateTime.now().difference(lastUserMsgTime).inMinutes;
           if (idle >= maxIdle && Random().nextDouble() < prob) {
             final lastUser = messages.isNotEmpty ? messages.last.fromUser : creds['user_id'] as String? ?? '';
@@ -421,6 +421,13 @@ Future<void> _handleTextMessage(
     }
   } catch (e) {
     print('[Background] 文本消息处理失败: $e');
+    final errorMsg = _formatErrorForUser(e);
+    try {
+      await _sendReply(wechat, msg.fromUser, errorMsg);
+      print('[Background] 已向用户发送错误提示: $errorMsg');
+    } catch (sendErr) {
+      print('[Background] 发送错误提示也失败了: $sendErr');
+    }
   } finally {
     try {
       await wechat.hideTyping(msg.fromUser);
@@ -452,6 +459,38 @@ bool _isGarbled(String text) {
     if ((r >= 0x80 && r <= 0x024F) || (r >= 0x2000 && r <= 0x206F)) bad++;
   }
   return bad > text.length * 0.3;
+}
+
+String _formatErrorForUser(dynamic e) {
+  final msg = e.toString();
+  if (msg.contains('401') || msg.contains('Unauthorized') || msg.contains('invalid_api_key')) {
+    return '⚠️ API Key 无效或已过期，请检查设置中的 API Key';
+  }
+  if (msg.contains('402') || msg.contains('insufficient') || msg.contains('余额') || msg.contains('quota')) {
+    return '⚠️ API 余额不足（402），请充值后再试';
+  }
+  if (msg.contains('429') || msg.contains('rate_limit') || msg.contains('too_many_requests')) {
+    return '⚠️ 请求太频繁了（429），稍等一下再发消息吧';
+  }
+  if (msg.contains('403') || msg.contains('Forbidden') || msg.contains('permission')) {
+    return '⚠️ API 访问被拒绝（403），请检查权限配置';
+  }
+  if (msg.contains('404') || msg.contains('Not Found') || msg.contains('model_not_found')) {
+    return '⚠️ 模型不存在（404），请检查设置中的模型名称';
+  }
+  if (msg.contains('500') || msg.contains('502') || msg.contains('503') || msg.contains('server_error')) {
+    return '⚠️ AI 服务暂时不可用，请稍后重试';
+  }
+  if (msg.contains('timeout') || msg.contains('TimeoutException') || msg.contains('超时') || msg.contains('timed out')) {
+    return '⏰ 回复超时了，AI 可能正在思考比较久的问题，再试试吧';
+  }
+  if (msg.contains('SocketException') || msg.contains('网络') || msg.contains('connection') || msg.contains('NetworkImage')) {
+    return '🌐 网络连接失败，请检查网络后重试';
+  }
+  if (msg.contains('context_length_exceeded') || msg.contains('max_tokens') || msg.contains('token')) {
+    return '📝 消息太长了，换个话题聊吧~';
+  }
+  return '😵 AI 回复出了点问题: $msg';
 }
 
 const List<String> _emojiKeywords = [
