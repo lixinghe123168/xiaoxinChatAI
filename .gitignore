@@ -90,3 +90,9 @@ xiaoxin_chat_app/.packages
 
 # 保留 Flutter 源码
 !xiaoxin_chat_app/lib/
+
+# 临时/备份目录
+.git_temp/
+
+# Flutter 测试文件
+xiaoxin_chat_app/test/
